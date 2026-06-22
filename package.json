@@ -28,6 +28,10 @@
     "installer"
   ],
   "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  },
   "peerDependencies": {
     "@justfortytwo/guide": "*",
     "@justfortytwo/vogon": "*",
@@ -35,9 +39,9 @@
     "@justfortytwo/babelfish": "*"
   },
   "peerDependenciesMeta": {
-    "@justfortytwo/guide": { "optional": false },
-    "@justfortytwo/vogon": { "optional": false },
-    "@justfortytwo/ford": { "optional": false },
+    "@justfortytwo/guide": { "optional": true },
+    "@justfortytwo/vogon": { "optional": true },
+    "@justfortytwo/ford": { "optional": true },
     "@justfortytwo/babelfish": { "optional": true }
   },
   "fortytwo": {
