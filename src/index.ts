@@ -33,7 +33,7 @@ export type Verb =
   | 'forget'
   | 'unbind';
 
-const USAGE = `fortytwo — install + lifecycle CLI for justfortytwo
+const USAGE = `fortytwo — install + lifecycle CLI for fortytwo
 
 Usage:
   create-fortytwo [init] [options]   first-run install + scaffold (init implied)

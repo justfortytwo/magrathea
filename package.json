@@ -1,9 +1,11 @@
 {
   "name": "@justfortytwo/magrathea",
   "version": "0.0.0",
-  "description": "All-in-one installer and lifecycle CLI for justfortytwo — scaffolds the persona surface and provisions the npm engine (guide MCP, safety gate, channel adapters, embedder).",
+  "description": "All-in-one installer and lifecycle CLI for fortytwo — scaffolds the persona surface and provisions the npm engine (guide MCP, safety gate, channel adapters, embedder).",
   "license": "MIT",
   "author": { "name": "Enrico Deleo", "url": "https://enricodeleo.com" },
+  "homepage": "https://forty-two.it",
+  "repository": { "type": "git", "url": "git+https://github.com/justfortytwo/magrathea.git" },
   "type": "module",
   "engines": {
     "node": ">=18"

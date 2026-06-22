@@ -1,6 +1,6 @@
 # @justfortytwo/magrathea
 
-The all-in-one installer and lifecycle CLI for **justfortytwo** — a personal
+The all-in-one installer and lifecycle CLI for **fortytwo** — a personal
 assistant built on Claude Code. One package ships two bins:
 
 - **`create-fortytwo`** — the install-time alias (`npm create fortytwo` /
@@ -9,7 +9,7 @@ assistant built on Claude Code. One package ships two bins:
 
 ## The two-surface model
 
-justfortytwo is delivered as **two surfaces**, and this CLI is the single
+fortytwo is delivered as **two surfaces**, and this CLI is the single
 operator interface over both:
 
 1. **The npm engine.** The reusable machinery — the guide MCP server, the
@@ -63,7 +63,7 @@ your machine. The standard model is `qwen3-embedding:0.6b`, served by Ollama;
 
 ## License
 
-MIT © 2026 justfortytwo
+MIT © 2026 Enrico Deleo
 
 ---
 
