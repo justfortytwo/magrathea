@@ -1,11 +1,11 @@
 // render.ts — materialize the PERSONA SURFACE.
 //
 // Two-surface model:
-//   1. The npm "engine" (guide MCP, safety gate, channel adapters, embedder) —
+//   1. The npm "engine" (memory MCP, safety gate, channel adapters, embedder) —
 //      installed as @justfortytwo/* packages, wired as Claude Code plugins.
 //   2. The PERSONA — CLAUDE.md + context/* . This is NOT a plugin. It is per-user,
 //      gitignored, and personal. The CLI SCAFFOLDS it by rendering the
-//      @justfortytwo/ford package's `templates/` against the user's captured
+//      @justfortytwo/persona package's `templates/` against the user's captured
 //      `.fortytwo/identity.json`, guided by that package's manifest.
 //
 // IDEMPOTENCE CONTRACT: re-rendering must NOT clobber captured fields. A user who
@@ -27,7 +27,7 @@ export interface PersonaFile {
   mode: 'captured' | 'managed';
 }
 
-/** Mirrors @justfortytwo/ford's persona manifest (the file map + var declarations). */
+/** Mirrors @justfortytwo/persona's persona manifest (the file map + var declarations). */
 export interface PersonaManifest {
   manifestVersion: number;
   files: PersonaFile[];
@@ -38,7 +38,7 @@ export interface PersonaManifest {
 export interface RenderOptions {
   /** Project root that receives CLAUDE.md + context/*. Defaults to cwd. */
   root?: string;
-  /** Resolved location of the @justfortytwo/ford package (for loadPersonaManifest). */
+  /** Resolved location of the @justfortytwo/persona package (for loadPersonaManifest). */
   personaPackageDir?: string;
   /** If true, report what WOULD be written without touching disk. */
   dryRun?: boolean;
@@ -82,15 +82,15 @@ export function renderTemplate(template: string, identity: Identity): string {
 }
 
 /**
- * Locate the installed @justfortytwo/ford package and read its manifest.
+ * Locate the installed @justfortytwo/persona package and read its manifest.
  * TODO(wire): resolve via createRequire(import.meta.url).resolve(
- *   '@justfortytwo/ford/manifest.json') so we honor the user's installed
+ *   '@justfortytwo/persona/manifest.json') so we honor the user's installed
  *   version. Note: ford currently ships a *field* manifest (the init prompts);
  *   reconcile it to also carry the `files` map this renderer needs, or derive
  *   the file map by scanning the package's templates dir.
  */
 export function loadPersonaManifest(_personaPackageDir?: string): PersonaManifest {
-  throw new Error('TODO(wire): loadPersonaManifest — resolve @justfortytwo/ford and read its file map');
+  throw new Error('TODO(wire): loadPersonaManifest — resolve @justfortytwo/persona and read its file map');
 }
 
 /**

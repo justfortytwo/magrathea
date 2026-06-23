@@ -37,7 +37,7 @@ export interface OwnerIdentity {
 
 /** Channel binding captured at init/pair (e.g. the Telegram chat allowlist). */
 export interface ChannelBinding {
-  // TODO(wire): shape mirrors @justfortytwo/babelfish's binding record. The
+  // TODO(wire): shape mirrors @justfortytwo/telegram's binding record. The
   // pairing flow (issueChallenge -> /login) writes the confirmed chatId here.
   channel: 'telegram' | string;
   allowedChatIds?: string[];
@@ -52,7 +52,7 @@ export interface ChannelBinding {
 export interface Identity {
   /** Schema version of THIS file's shape, so future CLI versions can migrate it. */
   identityVersion: number;
-  /** The assistant's name (e.g. "Ford"). Drives ASSISTANT_ACTOR + persona templates. */
+  /** The assistant's name (e.g. "Aria"). Drives ASSISTANT_ACTOR + persona templates. */
   agentName: string;
   owner: OwnerIdentity;
   channels?: ChannelBinding[];
@@ -64,7 +64,7 @@ export interface Identity {
 
 /** One resolved sibling-package version pin. */
 export interface VersionPin {
-  name: string;     // e.g. "@justfortytwo/guide"
+  name: string;     // e.g. "@justfortytwo/memory"
   range: string;    // the declared semver range (from package.json peerDeps / fortytwo.compat)
   resolved: string; // the concrete version installed (latest-in-range at install time)
 }
