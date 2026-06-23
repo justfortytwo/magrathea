@@ -2,24 +2,25 @@
 // at the end of `update` to decide whether an upgrade is healthy or needs rollback.
 //
 // Each check is independent and reported individually so a partial failure is
-// actionable. Exit code is non-zero if ANY required check fails.
+// actionable. Exit code is non-zero if ANY required check fails; warn-only
+// checks (embedder) never fail the run.
 //
-// CROSS-PACKAGE CONTRACTS asserted here:
-//   - @justfortytwo/memory exports MEMORY_TOOL_CONTRACT_VERSION and its tools are
-//     namespaced mcp__fortytwo-memory__* (e.g. mcp__fortytwo-memory__store,
-//     mcp__fortytwo-memory__recall, mcp__fortytwo-memory__query). doctor boots the
-//     MCP and asserts the advertised tool schema matches the version this CLI was
-//     built against.
-//   - @justfortytwo/gate exports POLICY_SCHEMA_VERSION. doctor fires a SYNTHETIC
-//     PreToolUse event at the gate and asserts a well-formed allow/defer/deny
-//     decision comes back (proving the gate hook is wired and the policy parses).
+// Checks are pure functions of an injected `DoctorDeps`, so they unit-test
+// hermetically; `defaultDoctorDeps()` wires the real engine siblings + Ollama +
+// the memory DB. CROSS-PACKAGE CONTRACTS asserted: gate's POLICY_SCHEMA_VERSION
+// and memory's MEMORY_TOOL_CONTRACT_VERSION must equal what this CLI was built
+// against, and installed siblings must satisfy the declared compat ranges.
 
-import { readState } from '../state.js';
+import {
+  loadGate, loadMemory, readInstalledVersion, readSelfCompatRanges,
+  satisfiesRange, fetchOllamaModels, readMigrationState, type MigrationState,
+} from '../engine.js';
+import { EMBED_MODEL, DEFAULT_OLLAMA_BASE_URL, DEFAULT_DB_PATH } from './init.js';
 
-// TODO(wire): import { MEMORY_TOOL_CONTRACT_VERSION } from '@justfortytwo/memory'
-// TODO(wire): import { POLICY_SCHEMA_VERSION } from '@justfortytwo/gate'
-const EXPECTED_MEMORY_CONTRACT = 'TODO(wire): MEMORY_TOOL_CONTRACT_VERSION';
-const EXPECTED_POLICY_SCHEMA = 'TODO(wire): POLICY_SCHEMA_VERSION';
+// The contract versions this CLI was authored against. A sibling advertising a
+// different MAJOR has broken the contract — doctor must flag it loudly.
+const EXPECTED_POLICY_SCHEMA = 1;
+const EXPECTED_MEMORY_CONTRACT = 1;
 
 export interface CheckResult {
   name: string;
@@ -29,76 +30,128 @@ export interface CheckResult {
   required: boolean;
 }
 
-/**
- * Boot the memory MCP server and assert its contract.
- * TODO(wire):
- *   - spawn @justfortytwo/memory's MCP entry over stdio, ListTools, and assert
- *     every expected mcp__fortytwo-memory__* tool is present with the right schema.
- *   - compare the package's MEMORY_TOOL_CONTRACT_VERSION to EXPECTED_MEMORY_CONTRACT.
- */
-async function checkGuideContract(): Promise<CheckResult> {
-  void EXPECTED_MEMORY_CONTRACT;
-  return { name: 'memory-mcp contract', ok: false, required: true, detail: 'TODO(wire): boot MCP + assert MEMORY_TOOL_CONTRACT_VERSION + tool schema' };
+/** Everything the checks need, injectable so tests stay hermetic. */
+export interface DoctorDeps {
+  loadGate: () => Promise<{ POLICY_SCHEMA_VERSION?: number } | null>;
+  loadMemory: () => Promise<{ MEMORY_TOOL_CONTRACT_VERSION?: number } | null>;
+  installedVersion: (spec: string) => string | null;
+  /** spec -> declared semver range (from this CLI's fortytwo.compat). */
+  compatRanges: Record<string, string>;
+  /** Installed Ollama model names, or null if unreachable. */
+  ollamaModels: () => Promise<string[] | null>;
+  embedModel: string;
+  migrationState: () => Promise<MigrationState>;
+}
+
+async function checkGate(deps: DoctorDeps): Promise<CheckResult> {
+  const name = 'safety gate';
+  const gate = await deps.loadGate();
+  if (!gate) {
+    return { name, ok: false, required: true, detail: '@justfortytwo/gate is not installed' };
+  }
+  const v = gate.POLICY_SCHEMA_VERSION;
+  if (v !== EXPECTED_POLICY_SCHEMA) {
+    return { name, ok: false, required: true, detail: `policySchema version ${v} != expected ${EXPECTED_POLICY_SCHEMA}` };
+  }
+  return { name, ok: true, required: true, detail: `gate present, policySchema v${v}` };
+}
+
+async function checkMemoryContract(deps: DoctorDeps): Promise<CheckResult> {
+  const name = 'memory-mcp contract';
+  const mem = await deps.loadMemory();
+  if (!mem) {
+    return { name, ok: false, required: true, detail: '@justfortytwo/memory is not installed' };
+  }
+  const v = mem.MEMORY_TOOL_CONTRACT_VERSION;
+  if (v !== EXPECTED_MEMORY_CONTRACT) {
+    return { name, ok: false, required: true, detail: `memory tool contract version ${v} != expected ${EXPECTED_MEMORY_CONTRACT}` };
+  }
+  return { name, ok: true, required: true, detail: `memory present, tool contract v${v}` };
+}
+
+async function checkCompat(deps: DoctorDeps): Promise<CheckResult> {
+  const name = 'peerDeps / fortytwo.compat';
+  const drift: string[] = [];
+  const seen: string[] = [];
+  for (const [spec, range] of Object.entries(deps.compatRanges)) {
+    const installed = deps.installedVersion(spec);
+    if (installed === null) continue; // optional sibling not installed — not a drift
+    seen.push(`${spec}@${installed}`);
+    if (!satisfiesRange(installed, range)) drift.push(`${spec}@${installed} ∉ ${range}`);
+  }
+  if (drift.length > 0) {
+    return { name, ok: false, required: true, detail: `compat drift: ${drift.join('; ')}` };
+  }
+  return { name, ok: true, required: true, detail: seen.length ? `in range: ${seen.join(', ')}` : 'no engine siblings installed' };
+}
+
+async function checkEmbedder(deps: DoctorDeps): Promise<CheckResult> {
+  // Warn-only: a missing embedder degrades semantic recall (FakeEmbedder
+  // fallback) but never blocks the assistant — mirrors wakeup.sh.
+  const name = 'embedder model';
+  const models = await deps.ollamaModels();
+  if (models === null) {
+    return { name, ok: false, required: false, detail: 'Ollama unreachable (semantic recall will degrade)' };
+  }
+  if (!models.includes(deps.embedModel)) {
+    return { name, ok: false, required: false, detail: `model ${deps.embedModel} not pulled (run: ollama pull ${deps.embedModel})` };
+  }
+  return { name, ok: true, required: false, detail: `${deps.embedModel} present` };
+}
+
+async function checkMigrations(deps: DoctorDeps): Promise<CheckResult> {
+  const name = 'db migrations';
+  const state = await deps.migrationState();
+  switch (state) {
+    case 'ok':
+      return { name, ok: true, required: true, detail: 'memory DB migrated' };
+    case 'missing':
+      return { name, ok: false, required: true, detail: 'no memory DB found — run `fortytwo init` first' };
+    case 'pending':
+      return { name, ok: false, required: true, detail: 'memory DB present but not migrated' };
+    case 'unavailable':
+      return { name, ok: false, required: false, detail: 'memory package not installed — cannot check migrations' };
+  }
 }
 
 /**
- * Fire a synthetic PreToolUse at the gate and assert a clean decision.
- * TODO(wire): import the gate's decide(), feed a benign read-tier event, and
- * assert permission ∈ {allow,defer,deny}; compare POLICY_SCHEMA_VERSION.
+ * Run all checks, return per-check results + aggregate. Reused by `update` as
+ * the post-install verify step. Aggregate ok = every required check passed.
  */
-async function checkGate(): Promise<CheckResult> {
-  void EXPECTED_POLICY_SCHEMA;
-  return { name: 'safety gate', ok: false, required: true, detail: 'TODO(wire): synthetic PreToolUse -> assert decision + POLICY_SCHEMA_VERSION' };
-}
-
-/**
- * Assert the memory DB is fully migrated.
- * TODO(wire): query @justfortytwo/memory's migration state (_migration_state) and
- * confirm no pending migrations against DB_PATH.
- */
-async function checkMigrations(): Promise<CheckResult> {
-  return { name: 'db migrations', ok: false, required: true, detail: 'TODO(wire): assert no pending migrations on DB_PATH' };
-}
-
-/**
- * GET {OLLAMA_BASE_URL}/api/tags and confirm EMBED_MODEL (qwen3-embedding:0.6b)
- * is present. Warn-only — like wakeup.sh, a missing embedder degrades semantic
- * recall but does not block the assistant (FakeEmbedder fallback).
- */
-async function checkEmbedder(): Promise<CheckResult> {
-  return { name: 'embedder model', ok: false, required: false, detail: 'TODO(impl): GET /api/tags, assert EMBED_MODEL present (warn-only)' };
-}
-
-/**
- * Cross-check the INSTALLED sibling versions against the declared ranges
- * (peerDeps + fortytwo.compat). Distribution is "semver ranges, latest-compatible":
- * doctor warns if an installed sibling has drifted outside the compat range this
- * CLI was authored against, so update/rollback decisions are informed.
- */
-async function checkCompat(): Promise<CheckResult> {
-  void readState;
-  return { name: 'peerDeps / fortytwo.compat', ok: false, required: true, detail: 'TODO(wire): compare installed @justfortytwo/* versions to declared ranges' };
-}
-
-/**
- * Run all checks, print a per-check report, return aggregate. Reused by `update`
- * as the post-install verify step.
- */
-export async function runDoctorChecks(): Promise<{ results: CheckResult[]; ok: boolean }> {
+export async function runDoctorChecks(deps: DoctorDeps): Promise<{ results: CheckResult[]; ok: boolean }> {
   const results = await Promise.all([
-    checkGuideContract(),
-    checkGate(),
-    checkMigrations(),
-    checkEmbedder(),
-    checkCompat(),
+    checkGate(deps),
+    checkMemoryContract(deps),
+    checkCompat(deps),
+    checkEmbedder(deps),
+    checkMigrations(deps),
   ]);
   const ok = results.every((r) => r.ok || !r.required);
   return { results, ok };
 }
 
+/** Wire the real engine siblings, Ollama, and memory DB into the checks. */
+export function defaultDoctorDeps(): DoctorDeps {
+  const ollamaBaseUrl = process.env.OLLAMA_BASE_URL ?? DEFAULT_OLLAMA_BASE_URL;
+  const dbPath = process.env.DB_PATH ?? DEFAULT_DB_PATH;
+  const embedModel = process.env.EMBED_MODEL ?? EMBED_MODEL;
+  return {
+    loadGate,
+    loadMemory,
+    installedVersion: readInstalledVersion,
+    compatRanges: readSelfCompatRanges(),
+    ollamaModels: () => fetchOllamaModels(ollamaBaseUrl),
+    embedModel,
+    migrationState: () => readMigrationState(dbPath),
+  };
+}
+
 export async function runDoctor(_argv: string[]): Promise<number> {
-  // TODO(impl): const { results, ok } = await runDoctorChecks(); pretty-print
-  // each (ok/warn/fail), then return ok ? 0 : 1.
-  const { ok } = await runDoctorChecks();
+  const { results, ok } = await runDoctorChecks(defaultDoctorDeps());
+  for (const r of results) {
+    const mark = r.ok ? 'ok  ' : r.required ? 'FAIL' : 'warn';
+    process.stdout.write(`[${mark}] ${r.name}: ${r.detail}\n`);
+  }
+  process.stdout.write(ok ? '\ndoctor: healthy\n' : '\ndoctor: required checks failed\n');
   return ok ? 0 : 1;
 }

@@ -14,8 +14,9 @@
 // run; CAPTURED outputs are written only on first render (when absent).
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
-import { dirname, resolve, sep } from 'node:path';
-import type { Identity } from './state.js';
+import { dirname, join, resolve, sep } from 'node:path';
+import { createRequire } from 'node:module';
+import type { Identity, Answers } from './state.js';
 
 /** Maps each persona template to an output path + render mode. */
 export interface PersonaFile {
@@ -27,12 +28,16 @@ export interface PersonaFile {
   mode: 'captured' | 'managed';
 }
 
-/** Mirrors @justfortytwo/persona's persona manifest (the file map + var declarations). */
+/** The persona package's manifest, resolved for rendering. */
 export interface PersonaManifest {
   manifestVersion: number;
   files: PersonaFile[];
+  /** Field keys the renderer must have a value for (manifest fields, required=true). */
   requiredVars: string[];
-  optionalVars?: string[];
+  /** Field keys that are optional (required=false). */
+  optionalVars: string[];
+  /** Absolute path to the package's `templates/` dir. */
+  templatesDir: string;
 }
 
 export interface RenderOptions {
@@ -44,7 +49,7 @@ export interface RenderOptions {
   dryRun?: boolean;
   /** Injected file map (hermetic/testable; bypasses loadPersonaManifest). */
   files?: PersonaFile[];
-  /** Directory the `template` paths are resolved against. */
+  /** Directory the `template` paths are resolved against (hermetic/testable). */
   templatesDir?: string;
 }
 
@@ -53,44 +58,60 @@ export interface RenderResult {
   skipped: string[]; // captured outputs left untouched because they already exist
 }
 
-/** Resolve a dotted path (e.g. `owner.name`) into the identity object. */
-function getPath(obj: unknown, path: string): unknown {
-  // own-property only: a template `{{toString}}` / `{{__proto__}}` must hit the
-  // fail-loud path, not resolve a prototype member into the rendered persona.
-  return path.split('.').reduce<unknown>(
-    (acc, key) =>
-      acc && typeof acc === 'object' && Object.prototype.hasOwnProperty.call(acc, key)
-        ? (acc as Record<string, unknown>)[key]
-        : undefined,
-    obj,
-  );
-}
-
 /**
- * Substitute `{{dotted.var}}` references with identity values. Fails LOUDLY on a
- * referenced variable that's missing/null — a half-filled persona (empty owner
- * name, blank agent name) is worse than a clear error at scaffold time.
+ * Substitute `{{key}}` references with captured answers (flat, keyed by the
+ * persona manifest field keys — snake_case, exactly what templates use).
+ *   - string value: inlined as-is.
+ *   - list value (array): joined with "\n- " so it slots after a leading "- "
+ *     in the template (the markdown bullet convention the templates rely on).
+ * Fails LOUDLY on a referenced variable that's missing/null — a half-filled
+ * persona (blank owner name, blank agent name) is worse than a clear error at
+ * scaffold time. Own-property only: `{{toString}}`/`{{__proto__}}` fail loud,
+ * they never resolve a prototype member into the rendered persona.
  */
-export function renderTemplate(template: string, identity: Identity): string {
-  return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, path: string) => {
-    const v = getPath(identity, path);
+export function renderTemplate(template: string, answers: Answers): string {
+  return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, key: string) => {
+    const has = Object.prototype.hasOwnProperty.call(answers, key);
+    const v = has ? (answers as Record<string, unknown>)[key] : undefined;
     if (v === undefined || v === null) {
-      throw new Error(`renderTemplate: missing required variable {{${path}}} in identity`);
+      throw new Error(`renderTemplate: missing required variable {{${key}}} in identity`);
     }
-    return Array.isArray(v) ? v.join(', ') : String(v);
+    return Array.isArray(v) ? v.join('\n- ') : String(v);
   });
 }
 
 /**
- * Locate the installed @justfortytwo/persona package and read its manifest.
- * TODO(wire): resolve via createRequire(import.meta.url).resolve(
- *   '@justfortytwo/persona/manifest.json') so we honor the user's installed
- *   version. Note: ford currently ships a *field* manifest (the init prompts);
- *   reconcile it to also carry the `files` map this renderer needs, or derive
- *   the file map by scanning the package's templates dir.
+ * Locate the persona package and read its manifest. With `personaPackageDir`
+ * (tests, or an explicitly-resolved path) we read `<dir>/manifest.json`;
+ * otherwise we resolve `@justfortytwo/persona/manifest.json` from the installed
+ * dependency so we honor the user's installed version. The manifest's `files`
+ * map drives rendering; `fields` (required flag) gives the required/optional
+ * var split; templates live under `<packageDir>/templates`.
  */
-export function loadPersonaManifest(_personaPackageDir?: string): PersonaManifest {
-  throw new Error('TODO(wire): loadPersonaManifest — resolve @justfortytwo/persona and read its file map');
+export function loadPersonaManifest(personaPackageDir?: string): PersonaManifest {
+  let manifestPath: string;
+  let pkgDir: string;
+  if (personaPackageDir) {
+    pkgDir = resolve(personaPackageDir);
+    manifestPath = join(pkgDir, 'manifest.json');
+  } else {
+    const require = createRequire(import.meta.url);
+    manifestPath = require.resolve('@justfortytwo/persona/manifest.json');
+    pkgDir = dirname(manifestPath);
+  }
+  const raw = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    manifestVersion?: number;
+    files?: PersonaFile[];
+    fields?: { key: string; required?: boolean }[];
+  };
+  const fields = raw.fields ?? [];
+  return {
+    manifestVersion: raw.manifestVersion ?? 1,
+    files: raw.files ?? [],
+    requiredVars: fields.filter((f) => f.required).map((f) => f.key),
+    optionalVars: fields.filter((f) => !f.required).map((f) => f.key),
+    templatesDir: join(pkgDir, 'templates'),
+  };
 }
 
 /**
@@ -98,18 +119,22 @@ export function loadPersonaManifest(_personaPackageDir?: string): PersonaManifes
  *   - MANAGED outputs: always (re)written from templates.
  *   - CAPTURED outputs: written only if they don't already exist; if present,
  *     left exactly as the user edited them (recorded in `skipped`).
+ * The file map + templates dir come from the persona manifest unless injected
+ * via opts (hermetic tests).
  */
 export function renderPersona(identity: Identity, opts: RenderOptions = {}): RenderResult {
   const root = resolve(opts.root ?? process.cwd());
-  const files = opts.files ?? loadPersonaManifest(opts.personaPackageDir).files;
-  if (!opts.templatesDir) {
-    throw new Error('renderPersona: templatesDir is required (or wire loadPersonaManifest)');
+  let files = opts.files;
+  let tplRoot = opts.templatesDir ? resolve(opts.templatesDir) : undefined;
+  if (!files || !tplRoot) {
+    const manifest = loadPersonaManifest(opts.personaPackageDir);
+    files = files ?? manifest.files;
+    tplRoot = tplRoot ?? resolve(manifest.templatesDir);
   }
-  const tplRoot = resolve(opts.templatesDir);
   const written: string[] = [];
   const skipped: string[] = [];
   for (const f of files) {
-    // Defense-in-depth: even though the manifest ships in the trusted ford
+    // Defense-in-depth: even though the manifest ships in the trusted persona
     // package, never let an output/template path escape its root via `..`.
     const outPath = resolve(root, f.output);
     if (outPath !== root && !outPath.startsWith(root + sep)) {
@@ -123,7 +148,7 @@ export function renderPersona(identity: Identity, opts: RenderOptions = {}): Ren
     if (!tplPath.startsWith(tplRoot + sep)) {
       throw new Error(`renderPersona: template path escapes templates dir: ${f.template}`);
     }
-    const rendered = renderTemplate(readFileSync(tplPath, 'utf8'), identity);
+    const rendered = renderTemplate(readFileSync(tplPath, 'utf8'), identity.answers);
     if (!opts.dryRun) {
       mkdirSync(dirname(outPath), { recursive: true });
       writeFileSync(outPath, rendered, 'utf8');

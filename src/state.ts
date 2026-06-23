@@ -25,15 +25,13 @@ export const FORTYTWO_DIR = '.fortytwo';
 export const IDENTITY_FILE = 'identity.json';
 export const STATE_FILE = 'state.json';
 
-/** Owner details captured at init; rendered into context/OWNER.md by render.ts. */
-export interface OwnerIdentity {
-  name: string;
-  // TODO(design): timezone, locale, pronouns, preferred-address — whatever the
-  // persona package's manifest.json declares as required template variables.
-  timezone?: string;
-  locale?: string;
-  [key: string]: unknown;
-}
+/**
+ * Captured answers, keyed by the persona manifest's field `key` (snake_case) —
+ * exactly the `{{tokens}}` the templates reference. A `string` for scalar
+ * fields, a `string[]` for `list` fields. This is the single map render.ts
+ * substitutes against; there is no separate owner sub-object.
+ */
+export type Answers = Record<string, string | string[]>;
 
 /** Channel binding captured at init/pair (e.g. the Telegram chat allowlist). */
 export interface ChannelBinding {
@@ -52,12 +50,12 @@ export interface ChannelBinding {
 export interface Identity {
   /** Schema version of THIS file's shape, so future CLI versions can migrate it. */
   identityVersion: number;
-  /** The assistant's name (e.g. "Aria"). Drives ASSISTANT_ACTOR + persona templates. */
-  agentName: string;
-  owner: OwnerIdentity;
+  /**
+   * Captured answers keyed by persona manifest field key (e.g. `agent_name`,
+   * `owner_name`, `owner_values`). `enrich` adds/updates keys here over time.
+   */
+  answers: Answers;
   channels?: ChannelBinding[];
-  /** Free-form answers captured by `enrich` to deepen the persona over time. */
-  enrichment?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
