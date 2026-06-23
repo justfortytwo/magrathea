@@ -63,6 +63,15 @@ describe('renderPersona — idempotent, non-clobbering', () => {
     expect(() => readFileSync(join(dir, 'CLAUDE.md'), 'utf8')).toThrow();
     rmSync(tpl, { recursive: true, force: true });
   });
+
+  it('rejects an output path that escapes the project root (no traversal)', () => {
+    const tpl = templatesDir();
+    expect(() => renderPersona(identity(), {
+      root: dir, templatesDir: tpl,
+      files: [{ template: 'CLAUDE.md.tmpl', output: '../escape.md', mode: 'managed' }],
+    })).toThrow(/escapes project root/);
+    rmSync(tpl, { recursive: true, force: true });
+  });
 });
 
 describe('state', () => {
@@ -86,5 +95,12 @@ describe('state', () => {
     const s = readState(dir)!;
     expect(s.current).toEqual(v2);
     expect(s.previous).toEqual(v1);                // the rollback target
+  });
+
+  it('does not burn the rollback target when the same set is recorded twice', () => {
+    const v1: VersionPin[] = [{ name: '@justfortytwo/guide', range: '^0.1.0', resolved: '0.1.0' }];
+    recordVersionSet(v1, dir);
+    recordVersionSet(v1, dir); // identical re-record (e.g. re-running `update`)
+    expect(readState(dir)!.previous).toBeNull(); // previous NOT overwritten with v1
   });
 });

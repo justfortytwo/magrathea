@@ -14,7 +14,7 @@
 // run; CAPTURED outputs are written only on first render (when absent).
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import type { Identity } from './state.js';
 
 /** Maps each persona template to an output path + render mode. */
@@ -55,8 +55,13 @@ export interface RenderResult {
 
 /** Resolve a dotted path (e.g. `owner.name`) into the identity object. */
 function getPath(obj: unknown, path: string): unknown {
+  // own-property only: a template `{{toString}}` / `{{__proto__}}` must hit the
+  // fail-loud path, not resolve a prototype member into the rendered persona.
   return path.split('.').reduce<unknown>(
-    (acc, key) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined),
+    (acc, key) =>
+      acc && typeof acc === 'object' && Object.prototype.hasOwnProperty.call(acc, key)
+        ? (acc as Record<string, unknown>)[key]
+        : undefined,
     obj,
   );
 }
@@ -100,15 +105,25 @@ export function renderPersona(identity: Identity, opts: RenderOptions = {}): Ren
   if (!opts.templatesDir) {
     throw new Error('renderPersona: templatesDir is required (or wire loadPersonaManifest)');
   }
+  const tplRoot = resolve(opts.templatesDir);
   const written: string[] = [];
   const skipped: string[] = [];
   for (const f of files) {
-    const outPath = join(root, f.output);
+    // Defense-in-depth: even though the manifest ships in the trusted ford
+    // package, never let an output/template path escape its root via `..`.
+    const outPath = resolve(root, f.output);
+    if (outPath !== root && !outPath.startsWith(root + sep)) {
+      throw new Error(`renderPersona: output path escapes project root: ${f.output}`);
+    }
     if (f.mode === 'captured' && existsSync(outPath)) {
       skipped.push(f.output);
       continue;
     }
-    const rendered = renderTemplate(readFileSync(join(opts.templatesDir, f.template), 'utf8'), identity);
+    const tplPath = resolve(tplRoot, f.template);
+    if (!tplPath.startsWith(tplRoot + sep)) {
+      throw new Error(`renderPersona: template path escapes templates dir: ${f.template}`);
+    }
+    const rendered = renderTemplate(readFileSync(tplPath, 'utf8'), identity);
     if (!opts.dryRun) {
       mkdirSync(dirname(outPath), { recursive: true });
       writeFileSync(outPath, rendered, 'utf8');

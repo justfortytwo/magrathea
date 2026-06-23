@@ -18,7 +18,7 @@
 // that's fatal) rather than throwing — except where a command explicitly
 // requires prior init (e.g. rollback needs state.json).
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 export const FORTYTWO_DIR = '.fortytwo';
@@ -95,11 +95,13 @@ function readJson<T>(path: string): T | null {
 }
 
 function writeJson(path: string, value: unknown): void {
-  // TODO(impl): mkdir -p `.fortytwo/`, write pretty-printed JSON atomically
-  // (write to a temp file in the same dir, then rename) so a crash mid-write
-  // can't truncate the rollback ledger.
+  // Atomic write: a crash mid-write must not truncate the rollback ledger.
+  // Write to a temp file in the SAME dir (so rename stays on one filesystem),
+  // then rename — rename is atomic on POSIX.
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(value, null, 2) + '\n', 'utf8');
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n', 'utf8');
+  renameSync(tmp, path);
 }
 
 // --- identity.json ---
@@ -133,12 +135,25 @@ export function writeState(state: InstallState, root = process.cwd()): void {
  * `previous` so `rollback` has a target. Called by `update` (and `init`).
  * TODO(impl): on the very first install, `previous` stays null.
  */
+function samePins(a: VersionPin[] | null, b: VersionPin[]): boolean {
+  if (!a || a.length !== b.length) return false;
+  return a.every((p, i) => {
+    const q = b[i];
+    return !!q && p.name === q.name && p.resolved === q.resolved && p.range === q.range;
+  });
+}
+
 export function recordVersionSet(next: VersionPin[], root = process.cwd()): InstallState {
   const prior = readState(root);
+  // Don't burn the rollback target by re-recording an identical set (e.g.
+  // re-running `update` with the same resolves) — keep `previous` pointing at the
+  // last set that actually DIFFERED. NOTE: rollback is single-step: `previous`
+  // holds only the immediately-prior set, not a full history.
+  const previous = prior ? (samePins(prior.current, next) ? prior.previous : prior.current) : null;
   const state: InstallState = {
     stateVersion: 1,
     current: next,
-    previous: prior?.current ?? null,
+    previous,
     lastUpdatedAt: new Date().toISOString(),
   };
   writeState(state, root);
