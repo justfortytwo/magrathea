@@ -109,8 +109,13 @@ export function readIdentity(root = process.cwd()): Identity | null {
 }
 
 export function writeIdentity(identity: Identity, root = process.cwd()): void {
-  // TODO(impl): stamp updatedAt; preserve createdAt if the file already exists.
-  writeJson(fortytwoPath(root, IDENTITY_FILE), identity);
+  const existing = readIdentity(root);
+  const now = new Date().toISOString();
+  writeJson(fortytwoPath(root, IDENTITY_FILE), {
+    ...identity,
+    createdAt: existing?.createdAt ?? identity.createdAt ?? now,
+    updatedAt: now,
+  });
 }
 
 // --- state.json ---
