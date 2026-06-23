@@ -11,9 +11,11 @@
 //   - the scaffolded PERSONA (CLAUDE.md + context/*, rendered from
 //     @justfortytwo/persona templates against .fortytwo/identity.json).
 //
-// All sibling-package calls are stubs marked `// TODO(wire):` until the sibling
-// repos publish.
+// init/doctor/unbind are wired against the local engine siblings; update/rollback
+// (npm-registry installs) and forget (a memory deletion API) report clearly that
+// they await publish / an upstream API rather than failing opaquely.
 
+import { pathToFileURL } from 'node:url';
 import { runInit } from './commands/init.js';
 import { runPair } from './commands/pair.js';
 import { runDoctor } from './commands/doctor.js';
@@ -93,12 +95,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 }
 
-// Run when invoked as a bin (not when imported by tests).
-// TODO(impl): tighten the entrypoint guard for NodeNext (compare import.meta.url
-// to pathToFileURL(process.argv[1])).
-main()
-  .then((code) => process.exit(code))
-  .catch((err) => {
-    process.stderr.write(`fortytwo: ${err?.stack ?? err}\n`);
-    process.exit(1);
-  });
+// Run only when invoked as a bin — never when imported (e.g. by tests).
+const invokedDirectly = import.meta.url === pathToFileURL(process.argv[1] ?? '').href;
+if (invokedDirectly) {
+  main()
+    .then((code) => process.exit(code))
+    .catch((err) => {
+      process.stderr.write(`fortytwo: ${err?.stack ?? err}\n`);
+      process.exit(1);
+    });
+}

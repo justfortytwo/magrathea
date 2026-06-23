@@ -11,14 +11,24 @@ import { runDoctorChecks } from './doctor.js';
 
 export async function runRollback(_argv: string[]): Promise<number> {
   // TODO(impl):
-  //   const state = readState()
-  //   if (!state) -> error: nothing to roll back (init never ran). return 1
-  //   if (!state.previous) -> error: no prior set recorded (only one install so
-  //                            far, or already rolled back). return 1
-  //   await installSet(state.previous)            // TODO(wire): reuse update's installer
-  //   recordVersionSet(state.previous)            // restore previous as current
-  //   const { ok } = await runDoctorChecks()      // verify the restore is healthy
-  //   print restored set; return ok ? 0 : 1
-  void readState; void recordVersionSet; void runDoctorChecks;
-  throw new Error('TODO(impl): runRollback — restore state.json.previous and re-verify');
+  // Real local validation of the rollback ledger.
+  const state = readState();
+  if (!state) {
+    process.stderr.write('rollback: nothing to roll back — run `fortytwo init` first.\n');
+    return 2;
+  }
+  if (!state.previous) {
+    process.stderr.write('rollback: no prior version set recorded (only one install so far, or already rolled back).\n');
+    return 2;
+  }
+  // BLOCKED: the actual re-install of the previous set needs the npm registry
+  // (same blocker as `update`). The ledger is valid and the target is known —
+  // we just can't fetch the versions until the engine packages are published.
+  void recordVersionSet; void runDoctorChecks;
+  process.stderr.write(
+    'rollback: not available yet — restoring the previous set re-installs from npm, ' +
+    'and the @justfortytwo/* engine packages are not published. Would restore:\n' +
+    state.previous.map((p) => `  ${p.name}@${p.resolved}`).join('\n') + '\n',
+  );
+  return 2;
 }

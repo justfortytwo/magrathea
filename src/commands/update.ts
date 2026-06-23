@@ -44,20 +44,24 @@ async function installSet(_set: import('../state.js').VersionPin[]): Promise<voi
 }
 
 export async function runUpdate(_argv: string[]): Promise<number> {
-  // TODO(impl) orchestration:
-  //   const prior = readState()                  // baseline must exist (init ran)
-  //   const next = await resolveLatestInRange()
-  //   if dryRun: print prior vs next diff; return 0
-  //   await installSet(next)
-  //   recordVersionSet(next)                      // rotates prior.current -> previous
-  //   const { results, ok } = await runDoctorChecks()  // post-verify
-  //   renderPersona(readIdentity())               // refresh managed scaffold (no clobber)
-  //   if (!ok) { print failed checks + "run `fortytwo rollback` to restore the
-  //              previous set"; return 1 }
-  //   print upgraded set; return 0
-  void recordVersionSet; void readState; void resolveLatestInRange; void installSet;
+  // Real local check: there must be an install baseline (init has run).
+  const prior = readState();
+  if (!prior) {
+    process.stderr.write('update: no install found — run `fortytwo init` first.\n');
+    return 2;
+  }
+  // BLOCKED: resolving latest-in-range and installing require the npm registry,
+  // and the @justfortytwo/* engine packages are not published yet. The orchestration
+  // (record baseline -> resolveLatestInRange -> installSet -> doctor -> render ->
+  // point at rollback on failure) is ready to wire the moment they publish.
+  void recordVersionSet; void resolveLatestInRange; void installSet;
   void runDoctorChecks; void renderPersona;
   void (null as unknown as RenderResult);
   void (null as unknown as UpdateFlags);
-  throw new Error('TODO(impl): runUpdate — resolve latest-in-range, install, doctor, point to rollback on failure');
+  process.stderr.write(
+    'update: not available yet — it resolves + installs from npm, and the ' +
+    '@justfortytwo/* engine packages are not published. Current set:\n' +
+    prior.current.map((p) => `  ${p.name}@${p.resolved} (${p.range})`).join('\n') + '\n',
+  );
+  return 2;
 }

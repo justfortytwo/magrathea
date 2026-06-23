@@ -28,10 +28,21 @@ export interface PersonaFile {
   mode: 'captured' | 'managed';
 }
 
+/** One persona manifest field (drives `fortytwo init` prompts + answer resolution). */
+export interface PersonaManifestField {
+  key: string;
+  prompt: string;
+  type: string;
+  required?: boolean;
+  default?: unknown;
+}
+
 /** The persona package's manifest, resolved for rendering. */
 export interface PersonaManifest {
   manifestVersion: number;
   files: PersonaFile[];
+  /** The raw field descriptors (for init's prompt + answer resolution). */
+  fields: PersonaManifestField[];
   /** Field keys the renderer must have a value for (manifest fields, required=true). */
   requiredVars: string[];
   /** Field keys that are optional (required=false). */
@@ -102,12 +113,13 @@ export function loadPersonaManifest(personaPackageDir?: string): PersonaManifest
   const raw = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
     manifestVersion?: number;
     files?: PersonaFile[];
-    fields?: { key: string; required?: boolean }[];
+    fields?: PersonaManifestField[];
   };
   const fields = raw.fields ?? [];
   return {
     manifestVersion: raw.manifestVersion ?? 1,
     files: raw.files ?? [],
+    fields,
     requiredVars: fields.filter((f) => f.required).map((f) => f.key),
     optionalVars: fields.filter((f) => !f.required).map((f) => f.key),
     templatesDir: join(pkgDir, 'templates'),

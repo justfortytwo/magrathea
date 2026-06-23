@@ -34,10 +34,43 @@ export const loadTelegram = () => loadSibling('@justfortytwo/telegram');
 
 /** Installed version of a sibling (its package.json `version`), or null. */
 export function readInstalledVersion(spec: string): string | null {
+  // Prefer the direct package.json subpath; packages with a restrictive
+  // `exports` map block it, so fall back to resolving the entry and walking up
+  // to the package.json whose `name` matches the spec.
+  const readVersion = (pkgPath: string): string | null => {
+    try {
+      return (JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string }).version ?? null;
+    } catch {
+      return null;
+    }
+  };
   try {
-    const pkg = require.resolve(`${spec}/package.json`);
-    const json = JSON.parse(readFileSync(pkg, 'utf8')) as { version?: string };
-    return json.version ?? null;
+    return readVersion(require.resolve(`${spec}/package.json`));
+  } catch {
+    /* exports-restricted — fall through */
+  }
+  try {
+    // Resolve the entry with the ESM resolver (matches the package's `import`
+    // condition — the same path loadSibling uses), then walk up to the
+    // package.json whose name matches. CJS require.resolve can't see
+    // import-only exports maps, so prefer import.meta.resolve.
+    let entry: string | null = null;
+    const esmResolve = (import.meta as { resolve?: (s: string) => string }).resolve;
+    if (esmResolve) {
+      try { entry = fileURLToPath(esmResolve(spec)); } catch { /* try CJS next */ }
+    }
+    if (!entry) entry = require.resolve(spec);
+    let dir = dirname(entry);
+    const root = parse(dir).root;
+    while (true) {
+      const candidate = join(dir, 'package.json');
+      if (existsSync(candidate)) {
+        const json = JSON.parse(readFileSync(candidate, 'utf8')) as { name?: string; version?: string };
+        if (json.name === spec) return json.version ?? null;
+      }
+      if (dir === root) return null;
+      dir = dirname(dir);
+    }
   } catch {
     return null;
   }
