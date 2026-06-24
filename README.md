@@ -74,7 +74,9 @@ your machine. The standard model is `qwen3-embedding:0.6b`, served by Ollama;
 
 ## Requirements
 
-- Node.js >= 18
+- Node.js >= 20 (Node 20 or 22 LTS recommended — the memory engine's native
+  `better-sqlite3` ships prebuilt binaries for LTS releases; newer/odd versions
+  may fall back to a slow source compile)
 - [Ollama](https://ollama.com/) for the local embedder (optional but
   recommended — the engine degrades gracefully without it)
 
