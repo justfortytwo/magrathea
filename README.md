@@ -3,9 +3,21 @@
 The all-in-one installer and lifecycle CLI for **fortytwo** — a personal
 assistant built on Claude Code. One package ships two bins:
 
-- **`create-fortytwo`** — the install-time alias (`npm create fortytwo` /
-  `npx create-fortytwo`). With no verb, it runs `init`.
+- **`create-fortytwo`** — the install-time alias; with no verb it runs `init`.
 - **`fortytwo`** — the everyday lifecycle alias for the verbs below.
+
+## Quick start
+
+```sh
+npm install @justfortytwo/installer   # in your project (or a fresh directory)
+npx create-fortytwo init              # capture your details, install the engine,
+                                      # and scaffold the persona
+```
+
+You only install **this** package — `init` installs the engine packages it needs
+on demand (`@justfortytwo/gate`, `/memory`, `/persona`, `/telegram`). Pass
+`--no-install` to manage them yourself, and `--yes` (with `--answers <file.json>`
+or `FORTYTWO_*` env) for non-interactive installs.
 
 ## The two-surface model
 
@@ -30,9 +42,9 @@ gitignored `.fortytwo/identity.json`; neither is ever committed.
 
 | Verb       | What it does |
 |------------|--------------|
-| `init`     | Capture your assistant's name + owner details (interactive, or via flags/env for CI). Writes `.fortytwo/identity.json`, secrets to `.env`, renders the persona, provisions local infra (pulls the embedder model, migrates the memory DB), records the installed version set, and issues a pairing code. |
+| `init`     | Install any missing engine packages, then capture your assistant's name + owner details (interactive, or via flags/env for CI). Writes `.fortytwo/identity.json`, secrets + `ALLOWED_CHAT_IDS` to `.env`, wires `.mcp.json`, renders the persona, provisions local infra (pulls the embedder model, migrates the memory DB), and records the installed version set. |
 | `pair`     | Issue a one-time `/login` pairing code to bind another chat/device to a channel. |
-| `doctor`   | Health-check the engine: boot the memory MCP and assert its tool contract, fire a synthetic event at the safety gate, confirm DB migrations are applied, check the embedder model is pulled, and cross-check installed sibling versions against the declared compatibility ranges. |
+| `doctor`   | Health-check the engine: assert the gate's `POLICY_SCHEMA_VERSION` and memory's `MEMORY_TOOL_CONTRACT_VERSION` match what this CLI expects, confirm the memory DB is migrated, cross-check installed sibling versions against the declared compatibility ranges, and check the embedder model is pulled (warn-only). |
 | `update`   | Resolve the latest in-range version of each engine package, install, then run `doctor` to verify. On failure it points you to `rollback`. |
 | `rollback` | Restore the previous version set recorded before the last `update`. |
 | `enrich`   | Capture more answers to deepen the persona, then re-render (no clobber). |

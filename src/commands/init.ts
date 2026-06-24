@@ -153,6 +153,45 @@ function writeMcpJson(root: string, dbPath: string): void {
   writeFileSync(path, JSON.stringify(buildMcpConfig(existing, { dbPath }), null, 2) + '\n', 'utf8');
 }
 
+/** Engine packages (from compat ranges) not yet resolvable, as `name@range` install specs. */
+export function engineInstallSpecs(
+  compatRanges: Record<string, string>,
+  isPresent: (spec: string) => boolean,
+): string[] {
+  return Object.entries(compatRanges)
+    .filter(([name]) => !isPresent(name))
+    .map(([name, range]) => `${name}@${range}`);
+}
+
+/**
+ * Make sure the engine packages the persona + commands need are installed in the
+ * project. Fresh users get the `create-fortytwo`/`fortytwo` bins from
+ * @justfortytwo/installer, but its engine siblings are OPTIONAL peers npm does
+ * not auto-install — so init installs whichever are missing. Presence is checked
+ * with the SAME resolver the renderer/doctor use (Node's upward node_modules
+ * walk), so an already-linked dev tree or a prior install is a no-op.
+ * `--no-install` opts out (managed/offline installs).
+ */
+async function ensureEngine(root: string, opts: { noInstall?: boolean }): Promise<void> {
+  const specs = engineInstallSpecs(readSelfCompatRanges(), (s) => readInstalledVersion(s) !== null);
+  if (specs.length === 0) return;
+  if (opts.noInstall) {
+    throw new Error(
+      `init: engine packages are not installed: ${specs.join(', ')}\n` +
+      `Install them (npm install ${specs.join(' ')}) or omit --no-install.`,
+    );
+  }
+  process.stdout.write(`Installing engine packages: ${specs.join(', ')}\n`);
+  if (!existsSync(join(root, 'package.json'))) {
+    spawnSync('npm', ['init', '-y'], { cwd: root, stdio: 'ignore' });
+  }
+  const res = spawnSync('npm', ['install', '--no-audit', '--no-fund', ...specs], { cwd: root, stdio: 'inherit' });
+  if (res.status !== 0) {
+    const why = res.error ? res.error.message : `npm exited ${res.status}`;
+    throw new Error(`init: failed to install engine packages (${why}). Install manually: npm install ${specs.join(' ')}`);
+  }
+}
+
 function recordInstalledSet(root: string): VersionPin[] {
   const pins = buildVersionPins(readSelfCompatRanges(), readInstalledVersion);
   recordVersionSet(pins, root);
@@ -192,6 +231,7 @@ async function provision(opts: { ollamaBaseUrl: string; embedModel: string; dbPa
 
 interface InitFlags {
   yes?: boolean;
+  noInstall?: boolean;
   answersFile?: string;
   flags: Record<string, string>;
   secrets: Record<string, string>;
@@ -204,6 +244,7 @@ function parseInitArgs(argv: string[]): InitFlags {
   const flags: Record<string, string> = {};
   const secrets: Record<string, string> = {};
   let yes = false;
+  let noInstall = false;
   let answersFile: string | undefined;
   let ollamaBaseUrl = process.env.OLLAMA_BASE_URL ?? DEFAULT_OLLAMA_BASE_URL;
   let dbPath = process.env.DB_PATH ?? DEFAULT_DB_PATH;
@@ -215,6 +256,7 @@ function parseInitArgs(argv: string[]): InitFlags {
     const a = argv[i];
     if (a === undefined) continue;
     if (a === '--yes' || a === '-y') { yes = true; continue; }
+    if (a === '--no-install') { noInstall = true; continue; }
     if (!a.startsWith('--')) continue;
     const name = a.slice(2);
     const val = argv[++i] ?? '';
@@ -226,7 +268,7 @@ function parseInitArgs(argv: string[]): InitFlags {
   }
   if (process.env.TELEGRAM_BOT_TOKEN) secrets.TELEGRAM_BOT_TOKEN ??= process.env.TELEGRAM_BOT_TOKEN;
   if (process.env.ALLOWED_CHAT_IDS) secrets.ALLOWED_CHAT_IDS ??= process.env.ALLOWED_CHAT_IDS;
-  return { yes, answersFile, flags, secrets, ollamaBaseUrl, dbPath };
+  return { yes, noInstall, answersFile, flags, secrets, ollamaBaseUrl, dbPath };
 }
 
 /** Prompt (readline) for the required fields still missing. TTY only. */
@@ -246,6 +288,9 @@ async function promptMissing(fields: ManifestField[], missing: string[], answers
 export async function runInit(argv: string[]): Promise<number> {
   const root = process.cwd();
   const opts = parseInitArgs(argv);
+
+  // Bootstrap: install any missing engine packages before we need them.
+  await ensureEngine(root, { noInstall: opts.noInstall });
 
   const manifest = loadPersonaManifest();
   const answersFile = opts.answersFile && existsSync(opts.answersFile)

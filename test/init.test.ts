@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  resolveAnswers, mergeEnvContent, buildMcpConfig, buildVersionPins,
+  resolveAnswers, mergeEnvContent, buildMcpConfig, buildVersionPins, engineInstallSpecs,
   type ManifestField,
 } from '../src/commands/init.js';
 
@@ -70,6 +70,28 @@ describe('buildMcpConfig', () => {
     expect(cfg.mcpServers.other).toEqual({ command: 'x' });
     expect(cfg.mcpServers['fortytwo-memory']).toBeDefined();
     expect(JSON.stringify(cfg.mcpServers['fortytwo-memory'])).toMatch(/fortytwo-memory|@justfortytwo\/memory/);
+  });
+});
+
+describe('engineInstallSpecs', () => {
+  const ranges = {
+    '@justfortytwo/gate': '^0.1.0',
+    '@justfortytwo/memory': '^0.1.0',
+    '@justfortytwo/persona': '^0.1.0',
+    '@justfortytwo/telegram': '^0.1.0',
+  };
+
+  it('returns name@range for engine packages not yet resolvable', () => {
+    const present = new Set(['@justfortytwo/gate']);
+    expect(engineInstallSpecs(ranges, (s) => present.has(s))).toEqual([
+      '@justfortytwo/memory@^0.1.0',
+      '@justfortytwo/persona@^0.1.0',
+      '@justfortytwo/telegram@^0.1.0',
+    ]);
+  });
+
+  it('returns [] when every engine package is already present (no redundant install)', () => {
+    expect(engineInstallSpecs(ranges, () => true)).toEqual([]);
   });
 });
 
