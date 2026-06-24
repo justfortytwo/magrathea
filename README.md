@@ -43,15 +43,20 @@ gitignored `.fortytwo/identity.json`; neither is ever committed.
 | Verb       | What it does |
 |------------|--------------|
 | `init`     | Install any missing engine packages, then capture your assistant's name + owner details (interactive, or via flags/env for CI). Writes `.fortytwo/identity.json`, secrets + `ALLOWED_CHAT_IDS` to `.env`, wires `.mcp.json`, renders the persona, provisions local infra (pulls the embedder model, migrates the memory DB), and records the installed version set. |
-| `pair`     | Issue a one-time `/login` pairing code to bind another chat/device to a channel. |
+| `pair`     | Issue a one-time `/login` pairing code, persisted to the bridge's bindings db so the separately-running bridge can redeem it (the dynamic counterpart to the static `ALLOWED_CHAT_IDS` allowlist). |
 | `doctor`   | Health-check the engine: assert the gate's `POLICY_SCHEMA_VERSION` and memory's `MEMORY_TOOL_CONTRACT_VERSION` match what this CLI expects, confirm the memory DB is migrated, cross-check installed sibling versions against the declared compatibility ranges, and check the embedder model is pulled (warn-only). |
-| `update`   | Resolve the latest in-range version of each engine package, install, then run `doctor` to verify. On failure it points you to `rollback`. |
-| `rollback` | Restore the previous version set recorded before the last `update`. |
+| `update`   | *(pending)* Resolve the latest in-range version of each engine package, install, then run `doctor` to verify. |
+| `rollback` | *(pending)* Restore the previous version set recorded before the last `update`. |
 | `enrich`   | Capture more answers to deepen the persona, then re-render (no clobber). |
-| `forget`   | Redact or remove specific memories from the memory store. |
+| `forget`   | Permanently delete memories selected by `--id` / `--query` (semantic) / `--tag` / `--source` / `--since`/`--until` — previewed and confirmed (or `--yes`). Owner-only: it deletes via a library API, never exposed to the assistant. |
 | `unbind`   | Revoke a channel binding (un-pair a chat / drop it from the allowlist). |
 
 Run `fortytwo <verb> --help` for verb-specific options.
+
+> **Status:** `init`, `pair`, `doctor`, `forget`, and `unbind` are functional.
+> `update`/`rollback` validate state and print guidance, but their npm
+> resolve/install step is not wired yet (now that the packages are published,
+> it's the next piece). `enrich` is still a stub.
 
 ## Update safety
 
