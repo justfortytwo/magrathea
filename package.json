@@ -45,10 +45,10 @@
     "vitest": "^2.1.0"
   },
   "peerDependencies": {
-    "@justfortytwo/memory": "^0.1.0",
+    "@justfortytwo/memory": "^0.1.1",
     "@justfortytwo/gate": "^0.1.0",
     "@justfortytwo/persona": "^0.1.0",
-    "@justfortytwo/telegram": "^0.1.0"
+    "@justfortytwo/telegram": "^0.1.1"
   },
   "peerDependenciesMeta": {
     "@justfortytwo/memory": {
