@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   resolveAnswers, mergeEnvContent, buildMcpConfig, buildVersionPins, engineInstallSpecs,
+  collectChannelSecrets,
   type ManifestField,
 } from '../src/commands/init.js';
 
@@ -88,6 +89,33 @@ describe('buildMcpConfig', () => {
     const cfg = buildMcpConfig(null, { dbPath: 'db/fortytwo.db' });
     const mem = cfg.mcpServers['fortytwo-memory'] as { env: Record<string, string> };
     expect(mem.env.OLLAMA_BASE_URL).toBe('http://localhost:11434');
+  });
+});
+
+describe('collectChannelSecrets', () => {
+  it('captures both channel secrets when answered', async () => {
+    const answers = ['123:ABC', '555,666'];
+    const asked: string[] = [];
+    const ask = async (q: string): Promise<string> => { asked.push(q); return answers.shift() ?? ''; };
+    expect(await collectChannelSecrets({}, ask)).toEqual({
+      TELEGRAM_BOT_TOKEN: '123:ABC',
+      ALLOWED_CHAT_IDS: '555,666',
+    });
+    expect(asked).toHaveLength(2);
+  });
+
+  it('skips a secret when the answer is blank', async () => {
+    const ask = async (): Promise<string> => '   ';
+    expect(await collectChannelSecrets({}, ask)).toEqual({});
+  });
+
+  it('does not prompt for a secret already provided via flags/env', async () => {
+    const asked: string[] = [];
+    const ask = async (q: string): Promise<string> => { asked.push(q); return '555'; };
+    expect(await collectChannelSecrets({ TELEGRAM_BOT_TOKEN: 'preset' }, ask)).toEqual({
+      ALLOWED_CHAT_IDS: '555',
+    });
+    expect(asked).toHaveLength(1); // only the chat-ids prompt
   });
 });
 

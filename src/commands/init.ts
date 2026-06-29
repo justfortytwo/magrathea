@@ -298,9 +298,33 @@ async function promptMissing(fields: ManifestField[], missing: string[], answers
   }
 }
 
+/**
+ * Interactively offer to capture the OPTIONAL Telegram channel secrets that
+ * weren't already supplied (via `--telegram-bot-token` / `--allowed-chat-ids` or
+ * the matching env vars). Each is skippable with a blank answer. Pure: the `ask`
+ * fn is injected, so it unit-tests without a real readline/TTY. Returns only the
+ * secrets to ADD (existing ones are never re-prompted).
+ */
+export async function collectChannelSecrets(
+  existing: Record<string, string>,
+  ask: (prompt: string) => Promise<string>,
+): Promise<Record<string, string>> {
+  const added: Record<string, string> = {};
+  if (!existing.TELEGRAM_BOT_TOKEN) {
+    const token = (await ask('Telegram bot token from @BotFather (blank to skip — Telegram is optional): ')).trim();
+    if (token) added.TELEGRAM_BOT_TOKEN = token;
+  }
+  if (!existing.ALLOWED_CHAT_IDS) {
+    const ids = (await ask('Allowed Telegram chat id(s), comma-separated (blank to skip — you can `fortytwo pair` later): ')).trim();
+    if (ids) added.ALLOWED_CHAT_IDS = ids;
+  }
+  return added;
+}
+
 export async function runInit(argv: string[]): Promise<number> {
   const root = process.cwd();
   const opts = parseInitArgs(argv);
+  const interactive = process.stdin.isTTY === true && !opts.yes;
 
   // Bootstrap: install any missing engine packages before we need them.
   await ensureEngine(root, { noInstall: opts.noInstall });
@@ -315,7 +339,6 @@ export async function runInit(argv: string[]): Promise<number> {
   const { missingRequired } = resolved;
 
   if (missingRequired.length > 0) {
-    const interactive = process.stdin.isTTY && !opts.yes;
     if (!interactive) {
       process.stderr.write(
         `init: missing required answers: ${missingRequired.join(', ')}\n` +
@@ -339,6 +362,18 @@ export async function runInit(argv: string[]): Promise<number> {
     updatedAt: new Date().toISOString(),
   };
   writeIdentity(identity, root);
+
+  // Interactively offer the optional Telegram secrets not already provided, so
+  // the channel works without a second manual .env edit. Skippable; non-TTY/--yes
+  // runs are unaffected (secrets still come from flags/env there).
+  if (interactive) {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      Object.assign(opts.secrets, await collectChannelSecrets(opts.secrets, (q) => rl.question(q)));
+    } finally {
+      rl.close();
+    }
+  }
 
   // Seed runtime config alongside any provided secrets.
   writeEnv(
