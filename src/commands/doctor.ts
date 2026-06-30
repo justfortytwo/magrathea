@@ -164,6 +164,7 @@ export function defaultDoctorDeps(): DoctorDeps {
   const ollamaBaseUrl = process.env.OLLAMA_BASE_URL ?? DEFAULT_OLLAMA_BASE_URL;
   const dbPath = process.env.DB_PATH ?? DEFAULT_DB_PATH;
   const embedModel = process.env.EMBED_MODEL ?? EMBED_MODEL;
+  // Must match heartbeatPath() in @justfortytwo/scheduler/src/heartbeat.ts.
   const hbPath = join(dirname(dbPath), 'scheduler.heartbeat');
   return {
     loadGate,
