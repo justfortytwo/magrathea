@@ -412,6 +412,12 @@ export async function runInit(argv: string[]): Promise<number> {
   } else {
     next.push('  • authorize a chat: run `fortytwo pair` and send `/login <code>`, or set ALLOWED_CHAT_IDS in .env');
   }
+  // The scheduler is now part of the engine (installed above), but — like the
+  // bridge — it's a long-running process the operator starts, not a supervised
+  // service. Surface how to run it; doctor reports its liveness via the heartbeat.
+  next.push('\nNext — to run scheduled / proactive jobs (briefings, sweeps, reminders):');
+  next.push('  • start the scheduler daemon: `fortytwo-scheduler` under a restart loop (see @justfortytwo/scheduler)');
+  next.push('  • it seeds the recurring jobs on first boot; `fortytwo doctor` reports whether it is running');
   out.write(next.join('\n') + '\n');
   return 0;
 }

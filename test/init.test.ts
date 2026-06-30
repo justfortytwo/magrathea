@@ -7,6 +7,7 @@ import {
   collectChannelSecrets,
   type ManifestField,
 } from '../src/commands/init.js';
+import { readSelfCompatRanges } from '../src/engine.js';
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'ft-init-')); });
@@ -138,6 +139,15 @@ describe('engineInstallSpecs', () => {
 
   it('returns [] when every engine package is already present (no redundant install)', () => {
     expect(engineInstallSpecs(ranges, () => true)).toEqual([]);
+  });
+});
+
+describe('declared engine compat', () => {
+  it('includes @justfortytwo/scheduler so `init` auto-installs the scheduler daemon', () => {
+    const compat = readSelfCompatRanges();
+    expect(Object.keys(compat)).toContain('@justfortytwo/scheduler');
+    // engineInstallSpecs over the real compat (nothing present) must offer scheduler.
+    expect(engineInstallSpecs(compat, () => false)).toContain(`@justfortytwo/scheduler@${compat['@justfortytwo/scheduler']}`);
   });
 });
 
